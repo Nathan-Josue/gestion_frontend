@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { Plus, Pencil, Trash2, Save, AlertCircle, Wifi, WifiOff } from "lucide-react"
+import { Plus, Pencil, Trash2, Save, AlertCircle, Wifi, WifiOff, Search, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -39,6 +39,30 @@ const MOCK_CATEGORIES: Category[] = [
   { id: 4, name: "Health", created_at: "2024-01-04", updated_at: "2024-01-04" },
 ]
 
+// Component to highlight search terms in text
+function HighlightedText({ text, highlight }: { text: string; highlight: string }) {
+  if (!highlight.trim()) {
+    return <span>{text}</span>
+  }
+
+  const regex = new RegExp(`(${highlight.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")})`, "gi")
+  const parts = text.split(regex)
+
+  return (
+    <span>
+      {parts.map((part, index) =>
+        regex.test(part) ? (
+          <mark key={index} className="bg-yellow-200 dark:bg-yellow-800 px-1 rounded">
+            {part}
+          </mark>
+        ) : (
+          part
+        ),
+      )}
+    </span>
+  )
+}
+
 export default function CategoryManagement() {
   const [categories, setCategories] = useState<Category[]>([])
   const [loading, setLoading] = useState(true)
@@ -60,6 +84,13 @@ export default function CategoryManagement() {
     failed: string[]
     isProcessing: boolean
   }>({ total: 0, completed: 0, failed: [], isProcessing: false })
+
+  const [searchTerm, setSearchTerm] = useState("")
+
+  // Filter categories based on search term
+  const filteredCategories = categories.filter((category) =>
+    category.name.toLowerCase().includes(searchTerm.toLowerCase()),
+  )
 
   // Check if API is accessible
   const checkApiConnection = async (): Promise<boolean> => {
@@ -596,6 +627,36 @@ export default function CategoryManagement() {
           </div>
         </CardHeader>
         <CardContent>
+          {/* Search Bar */}
+          <div className="mb-6">
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground h-4 w-4" />
+              <Input
+                placeholder="Search categories..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="pl-10 pr-10"
+              />
+              {searchTerm && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="absolute right-1 top-1/2 transform -translate-y-1/2 h-8 w-8 p-0"
+                  onClick={() => setSearchTerm("")}
+                >
+                  <X className="h-4 w-4" />
+                </Button>
+              )}
+            </div>
+            {searchTerm && (
+              <div className="mt-2 text-sm text-muted-foreground">
+                {filteredCategories.length === 0
+                  ? "No categories found"
+                  : `${filteredCategories.length} of ${categories.length} categories`}
+              </div>
+            )}
+          </div>
+
           {loading ? (
             <div className="flex items-center justify-center py-8">
               <div className="text-muted-foreground">Loading categories...</div>
@@ -606,6 +667,13 @@ export default function CategoryManagement() {
               <Button onClick={() => setIsAddDialogOpen(true)}>
                 <Plus className="w-4 h-4 mr-2" />
                 Add Your First Category
+              </Button>
+            </div>
+          ) : filteredCategories.length === 0 && searchTerm ? (
+            <div className="text-center py-8">
+              <div className="text-muted-foreground mb-4">No categories match "{searchTerm}"</div>
+              <Button variant="outline" onClick={() => setSearchTerm("")}>
+                Clear Search
               </Button>
             </div>
           ) : (
@@ -619,10 +687,12 @@ export default function CategoryManagement() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {categories.map((category) => (
+                  {filteredCategories.map((category) => (
                     <TableRow key={category.id}>
                       <TableCell className="font-medium">{category.id}</TableCell>
-                      <TableCell>{category.name}</TableCell>
+                      <TableCell>
+                        {searchTerm ? <HighlightedText text={category.name} highlight={searchTerm} /> : category.name}
+                      </TableCell>
                       <TableCell className="text-right">
                         <div className="flex items-center justify-end gap-2">
                           <Button variant="outline" size="sm" onClick={() => startEdit(category)}>
