@@ -52,6 +52,15 @@ export default function CategoryManagement() {
   const [nextId, setNextId] = useState(5) // For demo mode ID generation
   const { toast } = useToast()
 
+  const [bulkCategoryNames, setBulkCategoryNames] = useState("")
+  const [isBulkAddDialogOpen, setIsBulkAddDialogOpen] = useState(false)
+  const [bulkAddProgress, setBulkAddProgress] = useState<{
+    total: number
+    completed: number
+    failed: string[]
+    isProcessing: boolean
+  }>({ total: 0, completed: 0, failed: [], isProcessing: false })
+
   // Check if API is accessible
   const checkApiConnection = async (): Promise<boolean> => {
     try {
@@ -74,7 +83,7 @@ export default function CategoryManagement() {
     }
   }
 
-  // Read categories from Laravel API or use mock data
+  // Fetch categories from Laravel API or use mock data
   const fetchCategories = async () => {
     try {
       setLoading(true)
@@ -252,6 +261,117 @@ export default function CategoryManagement() {
     }
   }
 
+  // Add multiple categories at once
+  const addMultipleCategories = async () => {
+    const categoryNames = bulkCategoryNames
+      .split("\n")
+      .map((name) => name.trim())
+      .filter((name) => name.length > 0)
+      .filter((name, index, arr) => arr.indexOf(name) === index) // Remove duplicates
+
+    if (categoryNames.length === 0) {
+      toast({
+        title: "Error",
+        description: "Please enter at least one category name.",
+        variant: "destructive",
+      })
+      return
+    }
+
+    setBulkAddProgress({
+      total: categoryNames.length,
+      completed: 0,
+      failed: [],
+      isProcessing: true,
+    })
+
+    const failedCategories: string[] = []
+    let completedCount = 0
+
+    try {
+      if (isDemoMode) {
+        // Demo mode - add all to local state
+        const newCategories: Category[] = categoryNames.map((name, index) => ({
+          id: nextId + index,
+          name,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        }))
+
+        setCategories([...categories, ...newCategories])
+        setNextId(nextId + categoryNames.length)
+        completedCount = categoryNames.length
+
+        toast({
+          title: "Success (Demo)",
+          description: `${completedCount} categories created in demo mode.`,
+        })
+      } else {
+        // API mode - create categories one by one
+        for (const categoryName of categoryNames) {
+          try {
+            const response = await fetch(`${API_BASE_URL}/categories`, {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                Accept: "application/json",
+              },
+              body: JSON.stringify({ name: categoryName }),
+            })
+
+            if (!response.ok) {
+              throw new Error(`HTTP error! status: ${response.status}`)
+            }
+
+            const newCategory = await response.json()
+            setCategories((prev) => [...prev, newCategory.data || newCategory])
+            completedCount++
+          } catch (error) {
+            console.error(`Error creating category "${categoryName}":`, error)
+            failedCategories.push(categoryName)
+          }
+
+          setBulkAddProgress((prev) => ({
+            ...prev,
+            completed: completedCount,
+            failed: failedCategories,
+          }))
+        }
+
+        // Show final result
+        if (failedCategories.length === 0) {
+          toast({
+            title: "Success",
+            description: `All ${completedCount} categories created successfully.`,
+          })
+        } else {
+          toast({
+            title: "Partial Success",
+            description: `${completedCount} categories created, ${failedCategories.length} failed.`,
+            variant: "destructive",
+          })
+        }
+      }
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: `Failed to create categories: ${error instanceof Error ? error.message : "Unknown error"}`,
+        variant: "destructive",
+      })
+    } finally {
+      setBulkAddProgress((prev) => ({ ...prev, isProcessing: false }))
+
+      // Close dialog and reset form after a short delay if all succeeded
+      if (failedCategories.length === 0) {
+        setTimeout(() => {
+          setBulkCategoryNames("")
+          setIsBulkAddDialogOpen(false)
+          setBulkAddProgress({ total: 0, completed: 0, failed: [], isProcessing: false })
+        }, 1500)
+      }
+    }
+  }
+
   // Delete category (demo mode or API)
   const deleteCategory = async (id: number) => {
     if (!confirm("Are you sure you want to delete this category?")) {
@@ -347,44 +467,132 @@ export default function CategoryManagement() {
                   : "Manage your application categories"}
               </CardDescription>
             </div>
-            <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
-              <DialogTrigger asChild>
-                <Button>
-                  <Plus className="w-4 h-4 mr-2" />
-                  Add Category
-                </Button>
-              </DialogTrigger>
-              <DialogContent>
-                <DialogHeader>
-                  <DialogTitle>Add New Category</DialogTitle>
-                  <DialogDescription>Enter the name for the new category.</DialogDescription>
-                </DialogHeader>
-                <div className="grid gap-4 py-4">
-                  <div className="grid grid-cols-4 items-center gap-4">
-                    <Label htmlFor="name" className="text-right">
-                      Name
-                    </Label>
-                    <Input
-                      id="name"
-                      value={newCategoryName}
-                      onChange={(e) => setNewCategoryName(e.target.value)}
-                      className="col-span-3"
-                      placeholder="Enter category name"
-                      onKeyPress={(e) => e.key === "Enter" && addCategory()}
-                    />
+            <div className="flex gap-2">
+              <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
+                <DialogTrigger asChild>
+                  <Button>
+                    <Plus className="w-4 h-4 mr-2" />
+                    Add Category
+                  </Button>
+                </DialogTrigger>
+                <DialogContent>
+                  <DialogHeader>
+                    <DialogTitle>Add New Category</DialogTitle>
+                    <DialogDescription>Enter the name for the new category.</DialogDescription>
+                  </DialogHeader>
+                  <div className="grid gap-4 py-4">
+                    <div className="grid grid-cols-4 items-center gap-4">
+                      <Label htmlFor="name" className="text-right">
+                        Name
+                      </Label>
+                      <Input
+                        id="name"
+                        value={newCategoryName}
+                        onChange={(e) => setNewCategoryName(e.target.value)}
+                        className="col-span-3"
+                        placeholder="Enter category name"
+                        onKeyPress={(e) => e.key === "Enter" && addCategory()}
+                      />
+                    </div>
                   </div>
-                </div>
-                <DialogFooter>
-                  <Button variant="outline" onClick={() => setIsAddDialogOpen(false)}>
-                    Cancel
+                  <DialogFooter>
+                    <Button variant="outline" onClick={() => setIsAddDialogOpen(false)}>
+                      Cancel
+                    </Button>
+                    <Button onClick={addCategory}>
+                      <Save className="w-4 h-4 mr-2" />
+                      Save Category
+                    </Button>
+                  </DialogFooter>
+                </DialogContent>
+              </Dialog>
+
+              <Dialog open={isBulkAddDialogOpen} onOpenChange={setIsBulkAddDialogOpen}>
+                <DialogTrigger asChild>
+                  <Button variant="outline">
+                    <Plus className="w-4 h-4 mr-2" />
+                    Add Multiple
                   </Button>
-                  <Button onClick={addCategory}>
-                    <Save className="w-4 h-4 mr-2" />
-                    Save Category
-                  </Button>
-                </DialogFooter>
-              </DialogContent>
-            </Dialog>
+                </DialogTrigger>
+                <DialogContent className="max-w-md">
+                  <DialogHeader>
+                    <DialogTitle>Add Multiple Categories</DialogTitle>
+                    <DialogDescription>
+                      Enter category names, one per line. Duplicate names will be automatically removed.
+                    </DialogDescription>
+                  </DialogHeader>
+                  <div className="grid gap-4 py-4">
+                    <div className="grid gap-2">
+                      <Label htmlFor="bulk-names">Category Names</Label>
+                      <textarea
+                        id="bulk-names"
+                        value={bulkCategoryNames}
+                        onChange={(e) => setBulkCategoryNames(e.target.value)}
+                        className="min-h-[120px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 resize-none"
+                        placeholder="Technology&#10;Business&#10;Education&#10;Health"
+                        disabled={bulkAddProgress.isProcessing}
+                      />
+                      <div className="text-xs text-muted-foreground">
+                        {bulkCategoryNames.split("\n").filter((name) => name.trim().length > 0).length} categories to
+                        add
+                      </div>
+                    </div>
+
+                    {bulkAddProgress.isProcessing && (
+                      <div className="space-y-2">
+                        <div className="flex justify-between text-sm">
+                          <span>Progress:</span>
+                          <span>
+                            {bulkAddProgress.completed} / {bulkAddProgress.total}
+                          </span>
+                        </div>
+                        <div className="w-full bg-secondary rounded-full h-2">
+                          <div
+                            className="bg-primary h-2 rounded-full transition-all duration-300"
+                            style={{ width: `${(bulkAddProgress.completed / bulkAddProgress.total) * 100}%` }}
+                          />
+                        </div>
+                      </div>
+                    )}
+
+                    {bulkAddProgress.failed.length > 0 && (
+                      <div className="space-y-2">
+                        <div className="text-sm font-medium text-destructive">Failed to create:</div>
+                        <div className="text-xs text-muted-foreground max-h-20 overflow-y-auto">
+                          {bulkAddProgress.failed.join(", ")}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                  <DialogFooter>
+                    <Button
+                      variant="outline"
+                      onClick={() => {
+                        setIsBulkAddDialogOpen(false)
+                        setBulkCategoryNames("")
+                        setBulkAddProgress({ total: 0, completed: 0, failed: [], isProcessing: false })
+                      }}
+                      disabled={bulkAddProgress.isProcessing}
+                    >
+                      Cancel
+                    </Button>
+                    <Button
+                      onClick={addMultipleCategories}
+                      disabled={bulkAddProgress.isProcessing || bulkCategoryNames.trim().length === 0}
+                    >
+                      {bulkAddProgress.isProcessing ? (
+                        <>Processing...</>
+                      ) : (
+                        <>
+                          <Save className="w-4 h-4 mr-2" />
+                          Create Categories
+                        </>
+                      )}
+                    </Button>
+                  </DialogFooter>
+                </DialogContent>
+              </Dialog>
+            </div>
           </div>
         </CardHeader>
         <CardContent>
